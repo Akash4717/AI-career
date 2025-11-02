@@ -23,13 +23,17 @@ import useFetch from "@/hooks/use-fetch";
 import { useUser } from "@clerk/nextjs";
 import { entriesToMarkdown } from "@/app/lib/helper";
 import { resumeSchema } from "@/app/lib/schema";
-import html2pdf from "html2pdf.js/dist/html2pdf.min.js";
+
+// new imports for PDF
+import { pdf } from "@react-pdf/renderer";
+import ResumePDF from "./ResumePDF";
 
 export default function ResumeBuilder({ initialContent }) {
   const [activeTab, setActiveTab] = useState("edit");
   const [previewContent, setPreviewContent] = useState(initialContent);
   const { user } = useUser();
   const [resumeMode, setResumeMode] = useState("preview");
+  const [isGenerating, setIsGenerating] = useState(false);
 
   const {
     control,
@@ -56,14 +60,12 @@ export default function ResumeBuilder({ initialContent }) {
     error: saveError,
   } = useFetch(saveResume);
 
-  // Watch form fields for preview updates
   const formValues = watch();
 
   useEffect(() => {
     if (initialContent) setActiveTab("preview");
   }, [initialContent]);
 
-  // Update preview content when form values change
   useEffect(() => {
     if (activeTab === "edit") {
       const newContent = getCombinedContent();
@@ -71,7 +73,6 @@ export default function ResumeBuilder({ initialContent }) {
     }
   }, [formValues, activeTab]);
 
-  // Handle save result
   useEffect(() => {
     if (saveResult && !isSaving) {
       toast.success("Resume saved successfully!");
@@ -110,37 +111,42 @@ export default function ResumeBuilder({ initialContent }) {
       .join("\n\n");
   };
 
-  const [isGenerating, setIsGenerating] = useState(false);
-
+  // new PDF generation (client-side with @react-pdf/renderer)
   const generatePDF = async () => {
     setIsGenerating(true);
     try {
-      const element = document.getElementById("resume-pdf");
-      const opt = {
-        margin: [15, 15],
-        filename: "resume.pdf",
-        image: { type: "jpeg", quality: 0.98 },
-        html2canvas: { scale: 2 },
-        jsPDF: { unit: "mm", format: "a4", orientation: "portrait" },
-      };
+      const blob = await pdf(
+        <ResumePDF
+          content={previewContent}
+          contactInfo={formValues.contactInfo}
+          name={user?.fullName || "Your Name"}
+        />
+      ).toBlob();
 
-      await html2pdf().set(opt).from(element).save();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "resume.pdf";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
     } catch (error) {
       console.error("PDF generation error:", error);
+      toast.error("Failed to generate PDF");
     } finally {
       setIsGenerating(false);
     }
   };
 
-  const onSubmit = async (data) => {
+  const onSubmit = async () => {
     try {
       const formattedContent = previewContent
-        .replace(/\n/g, "\n") // Normalize newlines
-        .replace(/\n\s*\n/g, "\n\n") // Normalize multiple newlines to double newlines
+        .replace(/\n/g, "\n")
+        .replace(/\n\s*\n/g, "\n\n")
         .trim();
 
-      console.log(previewContent, formattedContent);
-      await saveResumeFn(previewContent);
+      await saveResumeFn(formattedContent);
     } catch (error) {
       console.error("Save error:", error);
     }
@@ -192,6 +198,7 @@ export default function ResumeBuilder({ initialContent }) {
           <TabsTrigger value="preview">Markdown</TabsTrigger>
         </TabsList>
 
+        {/* FORM TAB */}
         <TabsContent value="edit">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-8">
             {/* Contact Information */}
@@ -200,58 +207,30 @@ export default function ResumeBuilder({ initialContent }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 p-4 border rounded-lg bg-muted/50">
                 <div className="space-y-2">
                   <label className="text-sm font-medium">Email</label>
-                  <Input
-                    {...register("contactInfo.email")}
-                    type="email"
-                    placeholder="your@email.com"
-                    error={errors.contactInfo?.email}
-                  />
+                  <Input {...register("contactInfo.email")} type="email" placeholder="your@email.com" />
                   {errors.contactInfo?.email && (
-                    <p className="text-sm text-red-500">
-                      {errors.contactInfo.email.message}
-                    </p>
+                    <p className="text-sm text-red-500">{errors.contactInfo.email.message}</p>
                   )}
                 </div>
+
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">Mobile Number</label>
-                  <Input
-                    {...register("contactInfo.mobile")}
-                    type="tel"
-                    placeholder="+1 234 567 8900"
-                  />
-                  {errors.contactInfo?.mobile && (
-                    <p className="text-sm text-red-500">
-                      {errors.contactInfo.mobile.message}
-                    </p>
-                  )}
+                  <label className="text-sm font-medium">Mobile</label>
+                  <Input {...register("contactInfo.mobile")} type="tel" placeholder="+91 1234567890" />
                 </div>
+
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">LinkedIn URL</label>
-                  <Input
-                    {...register("contactInfo.linkedin")}
-                    type="url"
-                    placeholder="https://linkedin.com/in/your-profile"
-                  />
-                  {errors.contactInfo?.linkedin && (
-                    <p className="text-sm text-red-500">
-                      {errors.contactInfo.linkedin.message}
-                    </p>
-                  )}
+                  <label className="text-sm font-medium">LinkedIn</label>
+                  <Input {...register("contactInfo.linkedin")} type="url" placeholder="https://linkedin.com/in/username" />
                 </div>
+
                 <div className="space-y-2">
-                  <label className="text-sm font-medium">
-                    Twitter/X Profile
-                  </label>
-                  <Input
-                    {...register("contactInfo.twitter")}
-                    type="url"
-                    placeholder="https://twitter.com/your-handle"
-                  />
-                  {errors.contactInfo?.twitter && (
-                    <p className="text-sm text-red-500">
-                      {errors.contactInfo.twitter.message}
-                    </p>
-                  )}
+                  <label className="text-sm font-medium">GitHub</label>
+                  <Input {...register("contactInfo.github")} type="url" placeholder="https://github.com/username" />
+                </div>
+
+                <div className="space-y-2">
+                  <label className="text-sm font-medium">Portfolio</label>
+                  <Input {...register("contactInfo.portfolio")} type="url" placeholder="https://your-portfolio.com" />
                 </div>
               </div>
             </div>
@@ -263,17 +242,9 @@ export default function ResumeBuilder({ initialContent }) {
                 name="summary"
                 control={control}
                 render={({ field }) => (
-                  <Textarea
-                    {...field}
-                    className="h-32"
-                    placeholder="Write a compelling professional summary..."
-                    error={errors.summary}
-                  />
+                  <Textarea {...field} className="h-32" placeholder="Write a compelling professional summary..." />
                 )}
               />
-              {errors.summary && (
-                <p className="text-sm text-red-500">{errors.summary.message}</p>
-              )}
             </div>
 
             {/* Skills */}
@@ -283,17 +254,9 @@ export default function ResumeBuilder({ initialContent }) {
                 name="skills"
                 control={control}
                 render={({ field }) => (
-                  <Textarea
-                    {...field}
-                    className="h-32"
-                    placeholder="List your key skills..."
-                    error={errors.skills}
-                  />
+                  <Textarea {...field} className="h-32" placeholder="List your key skills..." />
                 )}
               />
-              {errors.skills && (
-                <p className="text-sm text-red-500">{errors.skills.message}</p>
-              )}
             </div>
 
             {/* Experience */}
@@ -303,18 +266,9 @@ export default function ResumeBuilder({ initialContent }) {
                 name="experience"
                 control={control}
                 render={({ field }) => (
-                  <EntryForm
-                    type="Experience"
-                    entries={field.value}
-                    onChange={field.onChange}
-                  />
+                  <EntryForm type="Experience" entries={field.value} onChange={field.onChange} />
                 )}
               />
-              {errors.experience && (
-                <p className="text-sm text-red-500">
-                  {errors.experience.message}
-                </p>
-              )}
             </div>
 
             {/* Education */}
@@ -324,18 +278,9 @@ export default function ResumeBuilder({ initialContent }) {
                 name="education"
                 control={control}
                 render={({ field }) => (
-                  <EntryForm
-                    type="Education"
-                    entries={field.value}
-                    onChange={field.onChange}
-                  />
+                  <EntryForm type="Education" entries={field.value} onChange={field.onChange} />
                 )}
               />
-              {errors.education && (
-                <p className="text-sm text-red-500">
-                  {errors.education.message}
-                </p>
-              )}
             </div>
 
             {/* Projects */}
@@ -345,22 +290,14 @@ export default function ResumeBuilder({ initialContent }) {
                 name="projects"
                 control={control}
                 render={({ field }) => (
-                  <EntryForm
-                    type="Project"
-                    entries={field.value}
-                    onChange={field.onChange}
-                  />
+                  <EntryForm type="Project" entries={field.value} onChange={field.onChange} />
                 )}
               />
-              {errors.projects && (
-                <p className="text-sm text-red-500">
-                  {errors.projects.message}
-                </p>
-              )}
             </div>
           </form>
         </TabsContent>
 
+        {/* PREVIEW TAB */}
         <TabsContent value="preview">
           {activeTab === "preview" && (
             <Button
@@ -389,10 +326,11 @@ export default function ResumeBuilder({ initialContent }) {
             <div className="flex p-3 gap-2 items-center border-2 border-yellow-600 text-yellow-600 rounded mb-2">
               <AlertTriangle className="h-5 w-5" />
               <span className="text-sm">
-                You will lose editied markdown if you update the form data.
+                You will lose edited markdown if you update the form data.
               </span>
             </div>
           )}
+
           <div className="border rounded-lg">
             <MDEditor
               value={previewContent}
@@ -400,17 +338,6 @@ export default function ResumeBuilder({ initialContent }) {
               height={800}
               preview={resumeMode}
             />
-          </div>
-          <div className="hidden">
-            <div id="resume-pdf">
-              <MDEditor.Markdown
-                source={previewContent}
-                style={{
-                  background: "white",
-                  color: "black",
-                }}
-              />
-            </div>
           </div>
         </TabsContent>
       </Tabs>

@@ -1,5 +1,5 @@
 import { getResume } from "@/actions/resume";
-import ResumeBuilder from "./_components/resume-builder";
+import ResumeBuilder from "./components/resume-builder";
 
 export default async function ResumePage() {
   const resume = await getResume();
